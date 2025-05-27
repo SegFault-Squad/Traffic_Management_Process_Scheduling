@@ -22,7 +22,7 @@ Scheduling, and Longest Job First. This simulation helps evaluate and compare th
 ## 🛠 Technologies Used
 - **HTML5**, **CSS3** (TailwindCSS)
 - **JavaScript**
-- No external backend — fully client-side
+- MongoDB to save the details of the best algorithm in the traffic condition in data base
 
 ## 🚀 Getting Started
 
