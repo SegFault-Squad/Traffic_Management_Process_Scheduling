@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Traffic Light Management Simulator</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2300cc00'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15.5v-3h4v3h-4zm0-5v-3h4v3h-4zm0-5V4h4v3h-4z'/%3E%3C/svg%3E">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #e0e7ff, #f3e8ff);
+            min-height: 100vh;
+            padding: 1rem;
+        }
+        .algorithm-container {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .algorithm-container:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
+        }
+        canvas {
+            border-radius: 8px;
+            background-color: #ffffff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .gantt-chart {
+            background-color: #f8fafc;
+            border-radius: 8px;
+            padding: 1rem;
+            overflow-x: auto;
+        }
+        .gantt-bar {
+            height: 20px;
+            background-color: #4f46e5;
+            border-radius: 4px;
+        }
+        .recommendation {
+            background: linear-gradient(to right, #d1fae5, #a7f3d0);
+            border: none;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        button {
+            transition: background-color 0.3s ease, transform 0.2s ease;
+        }
+        button:hover {
+            transform: scale(1.05);
+        }
+        input {
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        input:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
+            outline: none;
+        }
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        th, td {
+            border: none;
+            padding: 0.75rem;
+        }
+        th {
+            background-color: #e0e7ff;
+        }
+        tr:nth-child(even) {
+            background-color: #f8fafc;
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container mx-auto max-w-6xl">
+        <h1 class="text-4xl font-bold text-center text-gray-800 mb-8">Traffic Light Management Simulator</h1>
+
+        <div class="bg-white p-6 rounded-lg shadow-lg mb-8">
+            <label for="numLanes" class="block text-sm font-medium text-gray-700 mb-2">Number of Lanes:</label>
+            <input type="number" id="numLanes" min="1" max="4" value="4" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500" />
+            <button onclick="showVehicleForm()" class="mt-4 w-full bg-indigo-600 text-white p-2 rounded-md hover:bg-indigo-700">Create Lanes</button>
+        </div>
+
+        <div id="vehicleForm" class="bg-white p-6 rounded-lg shadow-lg mb-8 hidden">
+            <h3 class="text-2xl font-semibold text-gray-800 mb-4">Enter Vehicle Details</h3>
+            <label for="timeQuantum" class="block text-sm font-medium text-gray-700 mb-2">Time Quantum for Round Robin:</label>
+            <input type="number" id="timeQuantum" min="1" value="2" class="w-full p-2 border border-gray-300 rounded-md mb-4 focus:ring-2 focus:ring-indigo-500" />
+            <div id="laneInputs"></div>
+            <button onclick="setupLanes()" class="w-full bg-indigo-600 text-white p-2 rounded-md hover:bg-indigo-700">Submit</button>
+        </div>
+
+        <div id="simulations" class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8"></div>
+        <div class="flex justify-center space-x-4">
+            <button id="startBtn" onclick="startSimulation()" disabled class="bg-green-600 text-white p-2 rounded-md hover:bg-green-700 disabled:bg-gray-400">Start Simulation</button>
+            <button id="pauseBtn" onclick="togglePause()" disabled class="bg-yellow-600 text-white p-2 rounded-md hover:bg-yellow-700 disabled:bg-gray-400">Pause</button>
+            <button id="exportBtn" onclick="makeCSV()" disabled class="bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400">Export to CSV</button>
+        </div>
+        <div id="metrics" class="mt-8"></div>
+    </div>
+
+    <script>
+        let lanes = [];
+        let timeQuantum = 2;
+        let isPaused = false;
+        let isRunning = false;
+        let lastMetrics = null;
+        let lastGanttData = null;
+        const algorithms = [
+            { id: 'rr', name: 'Round Robin' },
+            { id: 'sjf', name: 'Shortest Job First' },
+            { id: 'priority', name: 'Priority Scheduling' },
+            { id: 'ljf', name: 'Longest Job First' }
+        ];
+        const canvasWidth = 300;
+        const canvasHeight = 300;
+
+        function showVehicleForm() {
+            const numLanes = parseInt(document.getElementById('numLanes').value);
+            if (numLanes < 1 || numLanes > 4) {
+                alert('Please enter a number of lanes between 1 and 4.');
+                return;
+            }
+            const laneInputs = document.getElementById('laneInputs');
+            laneInputs.innerHTML = '';
+            for (let i = 0; i < numLanes; i++) {
+                laneInputs.innerHTML += `
+                    <div class="form-group mb-6">
+                        <h4 class="text-lg font-medium text-gray-700">Lane ${i + 1}</h4>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Number of Vehicles:</label>
+                        <input type="number" id="numVehicles-${i}" min="1" value="2" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500" />
+                        <div id="vehicles-${i}" class="mt-4"></div>
+                    </div>
+                `;
+            }
+            document.getElementById('vehicleForm').classList.remove('hidden');
+            laneInputs.addEventListener('change', (e) => {
+                if (e.target.id.startsWith('numVehicles-')) {
+                    const laneIndex = e.target.id.split('-')[1];
+                    const numVehicles = parseInt(e.target.value) || 1;
+                    const vehicleContainer = document.getElementById(`vehicles-${laneIndex}`);
+                    vehicleContainer.innerHTML = '';
+                    for (let j = 0; j < numVehicles; j++) {
+                        vehicleContainer.innerHTML += `
+                            <div class="grid grid-cols-3 gap-4 mb-2">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Vehicle ${j + 1} Burst Time:</label>
+                                    <input type="number" id="bt-${laneIndex}-${j}" min="1" value="3" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500" />
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Priority:</label>
+                                    <input type="number" id="priority-${laneIndex}-${j}" min="1" value="1" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500" />
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Arrival Time:</label>
+                                    <input type="number" id="at-${laneIndex}-${j}" min="0" value="0" class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500" />
+                                </div>
+                            </div>
+                        `;
+                    }
+                }
+            });
+        }
+
+        function setupLanes() {
+            const numLanes = parseInt(document.getElementById('numLanes').value);
+            timeQuantum = parseInt(document.getElementById('timeQuantum').value) || 2;
+            lanes = [];
+            for (let i = 0; i < numLanes; i++) {
+                const numVehicles = parseInt(document.getElementById(`numVehicles-${i}`).value) || 1;
+                const lane = [];
+                for (let j = 0; j < numVehicles; j++) {
+                    const burstTime = parseInt(document.getElementById(`bt-${i}-${j}`).value) || 3;
+                    const priority = parseInt(document.getElementById(`priority-${i}-${j}`).value) || 1;
+                    const arrivalTime = parseInt(document.getElementById(`at-${i}-${j}`).value) || 0;
+                    lane.push({ id: j + 1, burstTime, remainingTime: burstTime, priority, arrivalTime });
+                }
+                lanes.push(lane);
+            }
+            document.getElementById('vehicleForm').classList.add('hidden');
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('exportBtn').disabled = true;
+            renderSimulations();
+        }
+
+        function renderSimulations() {
+            const simContainer = document.getElementById('simulations');
+            simContainer.innerHTML = '';
+            algorithms.forEach(algo => {
+                const algoDiv = document.createElement('div');
+                algoDiv.className = 'algorithm-container bg-white p-6 rounded-lg shadow-lg';
+                algoDiv.innerHTML = `<h3 class="text-xl font-semibold text-gray-800 mb-4">${algo.name}</h3>`;
+                const canvas = document.createElement('canvas');
+                canvas.id = `canvas-${algo.id}`;
+                canvas.width = canvasWidth;
+                canvas.height = canvasHeight;
+                algoDiv.appendChild(canvas);
+                simContainer.appendChild(algoDiv);
+                initializeCanvas(algo.id);
+            });
+            simContainer.classList.add('fade-in');
+        }
+
+        function initializeCanvas(algoId) {
+            const canvas = document.getElementById(`canvas-${algoId}`);
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#4b5563';
+            ctx.fillRect(100, 0, 100, 300);
+            ctx.fillRect(0, 100, 300, 100);
+            ctx.fillStyle = '#6b7280';
+            ctx.fillRect(100, 100, 100, 100);
+            drawLaneInfo(algoId);
+        }
+
+        function drawLaneInfo(algoId, vehicles = null) {
+            const canvas = document.getElementById(`canvas-${algoId}`);
+            const ctx = canvas.getContext('2d');
+            const lanePositions = [
+                { x: 130, y: 20, name: 'Lane 1 (N)', color: '#3b82f6' },
+                { x: 220, y: 130, name: 'Lane 2 (E)', color: '#ef4444' },
+                { x: 130, y: 280, name: 'Lane 3 (S)', color: '#10b981' },
+                { x: 20, y: 130, name: 'Lane 4 (W)', color: '#8b5cf6' }
+            ];
+            ctx.font = 'bold 14px Inter';
+            lanePositions.forEach((pos, i) => {
+                if (i >= lanes.length) return;
+                let carCount = vehicles
+                    ? vehicles.filter(v => v.laneIndex === i && v.remainingTime > 0).length
+                    : lanes[i]
+                    ? lanes[i].length
+                    : 0;
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.fillRect(pos.x - 40, pos.y - 12, 80, 18);
+                ctx.fillStyle = pos.color;
+                ctx.fillText(`${pos.name}: ${carCount} cars`, pos.x - 35, pos.y);
+            });
+        }
+
+        async function startSimulation() {
+            if (isRunning) return;
+            isRunning = true;
+            isPaused = false;
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('pauseBtn').disabled = false;
+            document.getElementById('exportBtn').disabled = true;
+            document.getElementById('metrics').innerHTML = '';
+
+            const metrics = {};
+            const ganttData = {};
+            const promises = algorithms.map(algo => runAlgorithm(algo.id));
+            const results = await Promise.all(promises);
+
+            results.forEach((result, i) => {
+                const algoId = algorithms[i].id;
+                metrics[algoId] = {
+                    name: algorithms[i].name,
+                    avgWaitingTime: result.waitingTimes.length > 0
+                        ? (result.waitingTimes.reduce((a, b) => a + b, 0) / result.waitingTimes.length).toFixed(2)
+                        : 0,
+                    avgTurnaroundTime: result.turnaroundTimes.length > 0
+                        ? (result.turnaroundTimes.reduce((a, b) => a + b, 0) / result.turnaroundTimes.length).toFixed(2)
+                        : 0,
+                    vehicleMetrics: result.vehicleMetrics
+                };
+                ganttData[algoId] = result.gantt;
+            });
+
+            lastMetrics = metrics;
+            lastGanttData = ganttData;
+            displayMetrics(metrics, ganttData);
+            isRunning = false;
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('pauseBtn').disabled = true;
+            document.getElementById('exportBtn').disabled = false;
+        }
+
+        function makeCSV() {
+            if (!lastMetrics || !lastGanttData) {
+                alert('No simulation data available. Please run the simulation first.');
+                return;
+            }
+
+            let csvContent = '';
+
+            csvContent += 'Algorithm Comparison\n';
+            csvContent += 'Algorithm,Average Waiting Time,Average Turnaround Time\n';
+            algorithms.forEach(algo => {
+                const m = lastMetrics[algo.id];
+                csvContent += `"${m.name}",${m.avgWaitingTime},${m.avgTurnaroundTime}\n`;
+            });
+            csvContent += '\n';
+
+            let bestAlgo = null;
+            let minWaitingTime = Infinity;
+            let minTurnaroundTime = Infinity;
+            algorithms.forEach(algo => {
+                const m = lastMetrics[algo.id];
+                const wt = parseFloat(m.avgWaitingTime);
+                const tat = parseFloat(m.avgTurnaroundTime);
+                if (wt < minWaitingTime || (wt === minWaitingTime && tat < minTurnaroundTime)) {
+                    minWaitingTime = wt;
+                    minTurnaroundTime = tat;
+                    bestAlgo = m;
+                }
+            });
+            csvContent += 'Recommended Algorithm\n';
+            csvContent += `Algorithm,"${bestAlgo.name}"\n`;
+            csvContent += `Average Waiting Time,${bestAlgo.avgWaitingTime}\n`;
+            csvContent += `Average Turnaround Time,${bestAlgo.avgTurnaroundTime}\n`;
+            csvContent += '\n';
+
+            algorithms.forEach(algo => {
+                const m = lastMetrics[algo.id];
+                csvContent += `${m.name} Details\n`;
+                csvContent += 'Vehicle,Burst Time,Waiting Time,Turnaround Time,Start Time,Completion Time\n';
+                m.vehicleMetrics.forEach(vm => {
+                    csvContent += `"${vm.vehicle}",${vm.burstTime},${vm.waitingTime},${vm.turnaroundTime},${vm.startTime},${vm.completionTime}\n`;
+                });
+                csvContent += '\n';
+                csvContent += `${m.name} Gantt Chart\n`;
+                csvContent += 'Vehicle,Start Time,End Time,Burst Time\n';
+                lastGanttData[algo.id].forEach(g => {
+                    csvContent += `"${g.vehicle}",${g.start},${g.end},${g.burstTime}\n`;
+                });
+                csvContent += '\n';
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'traffic_simulation_data.csv');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        async function runAlgorithm(algo) {
+            const waitingTimes = [];
+            const turnaroundTimes = [];
+            const vehicleMetrics = [];
+            const gantt = [];
+            let currentTime = 0;
+            const localLanes = JSON.parse(JSON.stringify(lanes));
+            let allVehicles = [];
+            localLanes.forEach((lane, laneIndex) => {
+                lane.forEach((vehicle, vIndex) => {
+                    allVehicles.push({ ...vehicle, laneIndex, vIndex, algo });
+                });
+            });
+
+            const canvas = document.getElementById(`canvas-${algo}`);
+            const ctx = canvas.getContext('2d');
+
+            if (algo === 'sjf') {
+                while (allVehicles.some(v => v.remainingTime > 0)) {
+                    if (isPaused) await waitForResume();
+                    const available = allVehicles.filter(v => v.arrivalTime <= currentTime && v.remainingTime > 0);
+                    if (available.length === 0) {
+                        currentTime++;
+                        continue;
+                    }
+                    available.sort((a, b) => a.burstTime - b.burstTime);
+                    const v = available[0];
+                    v.startTime = v.startTime || currentTime;
+                    gantt.push({ vehicle: `V${v.id}(L${v.laneIndex + 1})`, burstTime: v.burstTime, start: currentTime, end: currentTime + v.burstTime });
+                    await animateVehicle(v, v.burstTime, allVehicles);
+                    currentTime += v.burstTime;
+                    v.remainingTime = 0;
+                    waitingTimes.push(v.startTime - v.arrivalTime);
+                    turnaroundTimes.push(currentTime - v.arrivalTime);
+                    vehicleMetrics.push({
+                        vehicle: `V${v.id}(L${v.laneIndex + 1})`,
+                        burstTime: v.burstTime,
+                        waitingTime: v.startTime - v.arrivalTime,
+                        turnaroundTime: currentTime - v.arrivalTime,
+                        startTime: v.startTime,
+                        completionTime: currentTime
+                    });
+                    drawLaneInfo(algo, allVehicles);
+                }
+            } else if (algo === 'priority') {
+                while (allVehicles.some(v => v.remainingTime > 0)) {
+                    if (isPaused) await waitForResume();
+                    const available = allVehicles.filter(v => v.arrivalTime <= currentTime && v.remainingTime > 0);
+                    if (available.length === 0) {
+                        currentTime++;
+                        continue;
+                    }
+                    available.sort((a, b) => a.priority - b.priority);
+                    const v = available[0];
+                    v.startTime = v.startTime || currentTime;
+                    gantt.push({ vehicle: `V${v.id}(L${v.laneIndex + 1})`, burstTime: v.burstTime, start: currentTime, end: currentTime + v.burstTime });
+                    await animateVehicle(v, v.burstTime, allVehicles);
+                    currentTime += v.burstTime;
+                    v.remainingTime = 0;
+                    waitingTimes.push(v.startTime - v.arrivalTime);
+                    turnaroundTimes.push(currentTime - v.arrivalTime);
+                    vehicleMetrics.push({
+                        vehicle: `V${v.id}(L${v.laneIndex + 1})`,
+                        burstTime: v.burstTime,
+                        waitingTime: v.startTime - v.arrivalTime,
+                        turnaroundTime: currentTime - v.arrivalTime,
+                        startTime: v.startTime,
+                        completionTime: currentTime
+                    });
+                    drawLaneInfo(algo, allVehicles);
+                }
+            } else if (algo === 'ljf') {
+                while (allVehicles.some(v => v.remainingTime > 0)) {
+                    if (isPaused) await waitForResume();
+                    const available = allVehicles.filter(v => v.arrivalTime <= currentTime && v.remainingTime > 0);
+                    if (available.length === 0) {
+                        currentTime++;
+                        continue;
+                    }
+                    available.sort((a, b) => b.burstTime - a.burstTime);
+                    const v = available[0];
+                    v.startTime = v.startTime || currentTime;
+                    gantt.push({ vehicle: `V${v.id}(L${v.laneIndex + 1})`, burstTime: v.burstTime, start: currentTime, end: currentTime + v.burstTime });
+                    await animateVehicle(v, v.burstTime, allVehicles);
+                    currentTime += v.burstTime;
+                    v.remainingTime = 0;
+                    waitingTimes.push(v.startTime - v.arrivalTime);
+                    turnaroundTimes.push(currentTime - v.arrivalTime);
+                    vehicleMetrics.push({
+                        vehicle: `V${v.id}(L${v.laneIndex + 1})`,
+                        burstTime: v.burstTime,
+                        waitingTime: v.startTime - v.arrivalTime,
+                        turnaroundTime: currentTime - v.arrivalTime,
+                        startTime: v.startTime,
+                        completionTime: currentTime
+                    });
+                    drawLaneInfo(algo, allVehicles);
+                }
+            } else if (algo === 'rr') {
+                const queue = allVehicles.filter(v => v.remainingTime > 0);
+                while (queue.some(v => v.remainingTime > 0)) {
+                    if (isPaused) await waitForResume();
+                    let processed = false;
+                    for (let v of queue) {
+                        if (v.arrivalTime <= currentTime && v.remainingTime > 0) {
+                            v.startTime = v.startTime || currentTime;
+                            const slice = Math.min(timeQuantum, v.remainingTime);
+                            gantt.push({ vehicle: `V${v.id}(L${v.laneIndex + 1})`, burstTime: v.burstTime, start: currentTime, end: currentTime + slice });
+                            await animateVehicle(v, slice, allVehicles);
+                            v.remainingTime -= slice;
+                            currentTime += slice;
+                            if (v.remainingTime === 0) {
+                                waitingTimes.push(v.startTime - v.arrivalTime);
+                                turnaroundTimes.push(currentTime - v.arrivalTime);
+                                vehicleMetrics.push({
+                                    vehicle: `V${v.id}(L${v.laneIndex + 1})`,
+                                    burstTime: v.burstTime,
+                                    waitingTime: v.startTime - v.arrivalTime,
+                                    turnaroundTime: currentTime - v.arrivalTime,
+                                    startTime: v.startTime,
+                                    completionTime: currentTime
+                                });
+                            }
+                            processed = true;
+                            drawLaneInfo(algo, allVehicles);
+                        }
+                    }
+                    if (!processed) currentTime++;
+                }
+            }
+
+            return { waitingTimes, turnaroundTimes, vehicleMetrics, gantt };
+        }
+
+        async function animateVehicle(v, duration, vehicles) {
+            const canvas = document.getElementById(`canvas-${v.algo}`);
+            const ctx = canvas.getContext('2d');
+            const lane = v.laneIndex;
+            const vehicleWidth = 20;
+            const vehicleHeight = 10;
+            const steps = duration * 20;
+            const totalDistance = 100;
+            const stepDistance = totalDistance / steps;
+            let currentStep = 0;
+
+            const startPositions = [
+                { x: 140, y: 50, dx: 0, dy: 1 },
+                { x: 250, y: 140, dx: -1, dy: 0 },
+                { x: 140, y: 250, dx: 0, dy: -1 },
+                { x: 50, y: 140, dx: 1, dy: 0 }
+            ];
+            const pos = startPositions[lane];
+
+            const lightPositions = [
+                { x: 190, y: 90 },
+                { x: 210, y: 190 },
+                { x: 110, y: 210 },
+                { x: 90, y: 110 }
+            ];
+
+            return new Promise(resolve => {
+                async function draw() {
+                    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+                    initializeCanvas(v.algo);
+                    lightPositions.forEach((lp, i) => {
+                        ctx.beginPath();
+                        ctx.arc(lp.x, lp.y, 8, 0, 2 * Math.PI);
+                        ctx.fillStyle = i === lane ? '#10b981' : '#ef4444';
+                        ctx.fill();
+                    });
+                    ctx.fillStyle = '#60a5fa';
+                    ctx.fillRect(
+                        pos.x + currentStep * stepDistance * pos.dx,
+                        pos.y + currentStep * stepDistance * pos.dy,
+                        vehicleWidth,
+                        vehicleHeight
+                    );
+                    drawLaneInfo(v.algo, vehicles);
+                    currentStep++;
+                    if (currentStep <= steps) {
+                        await new Promise(r => setTimeout(r, 20));
+                        requestAnimationFrame(draw);
+                    } else {
+                        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+                        initializeCanvas(v.algo);
+                        lightPositions.forEach(lp => {
+                            ctx.beginPath();
+                            ctx.arc(lp.x, lp.y, 8, 0, 2 * Math.PI);
+                            ctx.fillStyle = '#ef4444';
+                            ctx.fill();
+                        });
+                        drawLaneInfo(v.algo, vehicles);
+                        resolve();
+                    }
+                }
+                draw();
+            });
+        }
+
+        function togglePause() {
+            isPaused = !isPaused;
+            document.getElementById('pauseBtn').textContent = isPaused ? 'Resume' : 'Pause';
+            document.getElementById('pauseBtn').classList.toggle('bg-yellow-600', !isPaused);
+            document.getElementById('pauseBtn').classList.toggle('bg-green-600', isPaused);
+        }
+
+        function waitForResume() {
+            return new Promise(resolve => {
+                const check = () => {
+                    if (!isPaused) resolve();
+                    else setTimeout(check, 100);
+                };
+                check();
+            });
+        }
+
+        function generateGanttChart(gantt) {
+            if (!gantt || gantt.length === 0) return '<p class="text-gray-600">No Gantt chart data available.</p>';
+            const maxTime = Math.max(...gantt.map(g => g.end));
+            const timeUnits = maxTime + 1;
+            let chart = '<div class="gantt-chart">';
+            chart += '<table class="w-full bg-white shadow-lg rounded-lg">';
+            chart += '<tr><th class="py-3 px-4 text-left">Vehicle</th>';
+            for (let t = 0; t < timeUnits; t++) {
+                chart += `<th class="py-3 px-2 text-center text-sm">${t}</th>`;
+            }
+            chart += '</tr>';
+            gantt.forEach(g => {
+                chart += '<tr>';
+                chart += `<td class="py-3 px-4">${g.vehicle}</td>`;
+                for (let t = 0; t < timeUnits; t++) {
+                    if (t >= g.start && t < g.end) {
+                        chart += '<td class="py-3 px-2"><div class="gantt-bar"></div></td>';
+                    } else {
+                        chart += '<td class="py-3 px-2"></td>';
+                    }
+                }
+                chart += '</tr>';
+            });
+            chart += '</table></div>';
+            return chart;
+        }
+
+        function displayMetrics(metrics, ganttData) {
+            let output = `
+                <h3 class="text-2xl font-semibold text-gray-800 mb-4">Algorithm Comparison</h3>
+                <table class="w-full bg-white shadow-lg rounded-lg">
+                    <tr>
+                        <th class="py-3 px-4 text-left">Algorithm</th>
+                        <th class="py-3 px-4 text-left">Avg. Waiting Time</th>
+                        <th class="py-3 px-4 text-left">Avg. Turnaround Time</th>
+                    </tr>
+            `;
+            algorithms.forEach(algo => {
+                const m = metrics[algo.id];
+                output += `
+                    <tr class="hover:bg-gray-50">
+                        <td class="py-3 px-4">${m.name}</td>
+                        <td class="py-3 px-4">${m.avgWaitingTime} units</td>
+                        <td class="py-3 px-4">${m.avgTurnaroundTime} units</td>
+                    </tr>
+                `;
+            });
+            output += '</table>';
+
+            let bestAlgo = null;
+            let minWaitingTime = Infinity;
+            let minTurnaroundTime = Infinity;
+            algorithms.forEach(algo => {
+                const m = metrics[algo.id];
+                const wt = parseFloat(m.avgWaitingTime);
+                const tat = parseFloat(m.avgTurnaroundTime);
+                if (wt < minWaitingTime || (wt === minWaitingTime && tat < minTurnaroundTime)) {
+                    minWaitingTime = wt;
+                    minTurnaroundTime = tat;
+                    bestAlgo = m;
+                }
+            });
+
+            output += `
+                <div class="recommendation p-6 mt-8">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-2">Recommended Algorithm</h3>
+                    <p class="text-gray-700"><strong>${bestAlgo.name}</strong> is best suited for this lane situation with an average waiting time of ${bestAlgo.avgWaitingTime} units and average turnaround time of ${bestAlgo.avgTurnaroundTime} units. This minimizes vehicle delays at the intersection.</p>
+                </div>
+            `;
+
+            algorithms.forEach(algo => {
+                const m = metrics[algo.id];
+                output += `
+                    <h3 class="text-2xl font-semibold text-gray-800 mt-8 mb-4">${m.name} Details</h3>
+                    <table class="w-full bg-white shadow-lg rounded-lg">
+                        <tr>
+                            <th class="py-3 px-4 text-left">Vehicle</th>
+                            <th class="py-3 px-4 text-left">Burst Time</th>
+                            <th class="py-3 px-4 text-left">Waiting Time</th>
+                            <th class="py-3 px-4 text-left">Turnaround Time</th>
+                            <th class="py-3 px-4 text-left">Start Time</th>
+                            <th class="py-3 px-4 text-left">Completion Time</th>
+                        </tr>
+                `;
+                m.vehicleMetrics.forEach(vm => {
+                    output += `
+                        <tr class="hover:bg-gray-50">
+                            <td class="py-3 px-4">${vm.vehicle}</td>
+                            <td class="py-3 px-4">${vm.burstTime}</td>
+                            <td class="py-3 px-4">${vm.waitingTime}</td>
+                            <td class="py-3 px-4">${vm.turnaroundTime}</td>
+                            <td class="py-3 px-4">${vm.startTime}</td>
+                            <td class="py-3 px-4">${vm.completionTime}</td>
+                        </tr>
+                    `;
+                });
+                output += '</table>';
+                output += `<h4 class="text-lg font-medium text-gray-700 mt-6 mb-2">Gantt Chart</h4>${generateGanttChart(ganttData[algo.id])}`;
+            });
+
+            document.getElementById('metrics').innerHTML = output;
+            document.getElementById('metrics').classList.add('fade-in');
+        }
+    </script>
+</body>
+</html>
